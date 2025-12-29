@@ -1,222 +1,294 @@
+/* CSS Reset & Variables */
 :root {
-    --bg-color: #050a05;
-    --text-color: #e0e0e0;
-    --accent-gold: #d4af37;
-    --felt-green: #0a3510;
-    --yes-green: #2ecc71;
-    --no-red: #e74c3c;
-    --font-main: 'Playfair Display', serif;
+    --deep-green: #0a1f18;
+    --gold: #d4af37;
+    --gold-dim: #8a7224;
+    --text-light: #e0e0e0;
+    --danger: #e74c3c;
+    --success: #2ecc71;
 }
 
-body {
+body,
+html {
     margin: 0;
     padding: 0;
-    background-color: var(--bg-color);
-    color: var(--text-color);
-    font-family: var(--font-main);
-    overflow: hidden;
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    justify-content: center;
+    width: 100vw;
     height: 100vh;
+    overflow: hidden;
+    font-family: 'Playfair Display', serif;
+    background-color: #000;
+    color: var(--text-light);
 }
 
-#app-container {
-    position: relative;
-    width: 100%;
-    max-width: 1024px;
-    aspect-ratio: 4/3;
-    border: 2px solid var(--accent-gold);
-    box-shadow: 0 0 20px rgba(212, 175, 55, 0.2);
-    background: #000;
-}
-
-video,
-canvas {
-    position: absolute;
+/* Loader */
+#loader {
+    position: fixed;
     top: 0;
     left: 0;
     width: 100%;
     height: 100%;
-    object-fit: cover;
-    pointer-events: none;
-    /* Allow clicks to pass through if necessary, but video needs auto? No, if none, passes to... body? */
+    background: #000;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    z-index: 9999;
 }
 
-/* We actually need video to receive clicks, but canvas is on top.
-   So let's make canvas none, video auto. */
+.spinner {
+    width: 50px;
+    height: 50px;
+    border: 3px solid #333;
+    border-top: 3px solid var(--gold);
+    border-radius: 50%;
+    animation: spin 1s linear infinite;
+    margin-bottom: 20px;
+}
+
+@keyframes spin {
+    100% {
+        transform: rotate(360deg);
+    }
+}
+
+.hidden {
+    display: none !important;
+}
+
+/* Main Container */
+#app-container {
+    position: relative;
+    width: 100vw;
+    height: 100vh;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    background: #111;
+}
+
 video {
-    pointer-events: auto;
+    display: none;
+    /* We draw to canvas instead */
 }
 
-canvas {
-    pointer-events: none;
+#canvas-output {
+    position: absolute;
+    width: 100%;
+    height: 100%;
+    object-fit: contain;
+    /* Respect aspect ratio */
 }
 
+/* UI Layer */
 #ui-layer {
     position: absolute;
     top: 0;
     left: 0;
     width: 100%;
     height: 100%;
-    z-index: 10;
     pointer-events: none;
+    /* Let clicks pass through to canvas if needed, but we handle selection manually */
 }
 
-/* Draggable Zones */
+/* Zones */
 .zone {
     position: absolute;
-    border: 2px solid;
-    background: rgba(255, 255, 255, 0.1);
-    resize: both;
-    overflow: hidden;
-    pointer-events: auto;
-    /* Allow interaction */
+    border: 2px solid rgba(255, 255, 255, 0.2);
     display: flex;
-    align-items: center;
     justify-content: center;
-    color: white;
+    align-items: center;
+    font-size: 2rem;
     font-weight: bold;
-    text-shadow: 0 1px 2px black;
+    letter-spacing: 2px;
+    backdrop-filter: blur(2px);
+    pointer-events: auto;
+    /* Allow dragging */
     cursor: grab;
-    min-width: 50px;
-    min-height: 50px;
-}
-
-.zone::after {
-    content: '';
-    position: absolute;
-    bottom: 0;
-    right: 0;
-    width: 10px;
-    height: 10px;
-    background: white;
-    cursor: nwse-resize;
-    /* Custom resize handle feel */
 }
 
 #yes-zone {
-    border-color: var(--yes-green);
-    top: 20%;
-    left: 10%;
-    width: 150px;
-    height: 150px;
+    width: 20vw;
+    height: 100vh;
+    top: 0;
+    left: 0;
+    background: linear-gradient(90deg, rgba(46, 204, 113, 0.1), transparent);
+    color: var(--success);
+    border-right: 1px solid var(--success);
 }
 
 #no-zone {
-    border-color: var(--no-red);
-    top: 20%;
-    right: 10%;
-    width: 150px;
-    height: 150px;
+    width: 20vw;
+    height: 100vh;
+    top: 0;
+    right: 0;
+    background: linear-gradient(-90deg, rgba(231, 76, 60, 0.1), transparent);
+    color: var(--danger);
+    border-left: 1px solid var(--danger);
 }
 
-/* Controls & Setup */
+/* Controls Box */
 #controls {
     position: absolute;
-    bottom: 20px;
+    bottom: 50px;
     left: 50%;
     transform: translateX(-50%);
+    background: rgba(10, 31, 24, 0.9);
+    border: 1px solid var(--gold);
+    padding: 2rem;
     text-align: center;
-    pointer-events: auto;
-    background: rgba(0, 0, 0, 0.8);
-    padding: 20px;
-    border: 1px solid var(--accent-gold);
     border-radius: 8px;
-    width: 80%;
+    pointer-events: auto;
+    width: 400px;
+    box-shadow: 0 0 20px rgba(0, 0, 0, 0.8);
 }
 
 h1 {
-    margin: 0 0 10px 0;
-    color: var(--accent-gold);
+    margin: 0 0 1rem;
+    color: var(--gold);
+    font-size: 1.5rem;
 }
 
 p {
     font-size: 0.9rem;
-    margin-bottom: 20px;
+    margin-bottom: 1.5rem;
+    line-height: 1.4;
+    color: #ccc;
 }
 
 button {
-    background: var(--felt-green);
-    color: var(--accent-gold);
-    border: 1px solid var(--accent-gold);
-    padding: 10px 30px;
-    font-family: var(--font-main);
+    background: transparent;
+    border: 1px solid var(--gold);
+    color: var(--gold);
+    padding: 10px 40px;
+    font-family: inherit;
     font-size: 1.2rem;
     cursor: pointer;
     transition: all 0.3s ease;
+}
+
+button:hover:not(:disabled) {
+    background: var(--gold);
+    color: #000;
+    box-shadow: 0 0 15px var(--gold);
+}
+
+button:disabled {
+    border-color: #444;
+    color: #444;
+    cursor: not-allowed;
+}
+
+/* Debug Views */
+.debug-panel {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    margin: 10px 0;
+    gap: 5px;
+}
+
+.debug-panel span {
+    font-size: 0.7rem;
+    color: #666;
     text-transform: uppercase;
-    letter-spacing: 2px;
 }
 
-button:hover {
-    background: var(--accent-gold);
-    color: var(--felt-green);
+#mask-output {
+    background: #000;
+    border: 1px solid #333;
 }
 
-#status-indicator {
+/* Status Text */
+#status-message {
+    font-size: 0.9rem;
+    margin-bottom: 10px;
+    font-style: italic;
+}
+
+.status-neutral {
+    color: #888;
+}
+
+.status-ok {
+    color: var(--success);
+}
+
+.status-warn {
+    color: var(--danger);
+}
+
+/* Active State */
+#active-indicator {
     position: absolute;
     top: 20px;
-    left: 20px;
-    color: var(--yes-green);
-    font-size: 0.8rem;
-    text-transform: uppercase;
-    letter-spacing: 1px;
-    background: rgba(0, 0, 0, 0.5);
-    padding: 5px 10px;
-    border: 1px solid var(--yes-green);
-    display: none;
-    /* Hidden strictly until armed */
+    width: 100%;
+    text-align: center;
+    color: var(--gold);
+    text-shadow: 0 0 10px var(--gold);
+    font-size: 1.5rem;
+    letter-spacing: 5px;
+    animation: pulse 2s infinite;
 }
 
-/* Overlays */
+@keyframes pulse {
+    0% {
+        opacity: 0.5;
+    }
+
+    50% {
+        opacity: 1;
+    }
+
+    100% {
+        opacity: 0.5;
+    }
+}
+
+/* Overlay */
 #active-overlay {
     position: fixed;
     top: 0;
     left: 0;
-    width: 100vw;
-    height: 100vh;
+    width: 100%;
+    height: 100%;
+    background: rgba(0, 0, 0, 0.9);
     display: flex;
-    align-items: center;
     justify-content: center;
+    align-items: center;
     z-index: 100;
-    pointer-events: none;
     opacity: 0;
-    transition: opacity 0.5s;
+    pointer-events: none;
+    transition: opacity 1s ease;
 }
 
 #active-overlay.visible {
     opacity: 1;
-    background: rgba(0, 0, 0, 0.8);
+    pointer-events: auto;
 }
 
 #message-text {
     font-size: 5rem;
-    color: var(--accent-gold);
+    color: var(--gold);
+    text-shadow: 0 0 30px var(--gold);
     text-align: center;
-    text-shadow: 0 0 30px rgba(212, 175, 55, 0.5);
 }
 
+/* Toast */
 .toast {
-    position: fixed;
-    bottom: 50px;
+    position: absolute;
+    top: 20px;
     left: 50%;
     transform: translateX(-50%);
-    background: rgba(231, 76, 60, 0.9);
-    color: white;
-    padding: 15px 30px;
+    background: var(--danger);
+    color: #fff;
+    padding: 10px 20px;
     border-radius: 4px;
-    font-size: 1.2rem;
     opacity: 0;
-    transition: opacity 0.3s;
-    z-index: 101;
+    transition: opacity 0.5s;
+    pointer-events: none;
+    z-index: 50;
 }
 
 .toast.visible {
     opacity: 1;
-}
-
-.hidden {
-    display: none !important;
 }

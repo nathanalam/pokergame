@@ -59,6 +59,19 @@
                 <button id="start-btn" disabled>Start System</button>
             </div>
 
+            <!-- Selection Confirmation Modal -->
+            <div id="confirm-modal" class="hidden">
+                <h2>Confirm Target</h2>
+                <div class="preview-container">
+                    <canvas id="preview-canvas" width="160" height="120"></canvas>
+                </div>
+                <p>Is the white area covering your object?</p>
+                <div class="modal-buttons">
+                    <button id="confirm-yes">Yes, Lock It</button>
+                    <button id="confirm-no">No, Retry</button>
+                </div>
+            </div>
+
             <div id="active-indicator" class="hidden">SYSTEM ARMED</div>
         </div>
     </div>

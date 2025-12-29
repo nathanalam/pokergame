@@ -292,6 +292,69 @@ button:disabled {
     z-index: 50;
 }
 
-.toast.visible {
-    opacity: 1;
+
+/* Confirmation Modal */
+#confirm-modal {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    background: rgba(10, 20, 15, 0.95);
+    border: 2px solid var(--gold);
+    padding: 2rem;
+    text-align: center;
+    border-radius: 8px;
+    z-index: 200;
+    box-shadow: 0 0 50px rgba(0, 0, 0, 0.9);
+    width: 300px;
+}
+
+#confirm-modal h2 {
+    color: var(--gold);
+    margin-top: 0;
+}
+
+.preview-container {
+    margin: 1rem 0;
+    border: 1px solid #444;
+    background: #000;
+}
+
+#preview-canvas {
+    width: 100%;
+    height: auto;
+    background: #000;
+}
+
+.modal-buttons {
+    display: flex;
+    gap: 1rem;
+    justify-content: center;
+}
+
+.modal-buttons button {
+    padding: 10px 20px;
+    font-size: 1rem;
+}
+
+#confirm-yes {
+    border-color: var(--success);
+    color: var(--success);
+}
+
+#confirm-yes:hover {
+    background: var(--success);
+    color: #fff;
+    box-shadow: 0 0 10px var(--success);
+}
+
+#confirm-no {
+    border-color: var(--danger);
+    color: var(--danger);
+}
+
+#confirm-no:hover {
+    background: var(--danger);
+    color: #fff;
+    box-shadow: 0 0 10px var(--danger);
 }

@@ -325,35 +325,62 @@ function setupInputHandlers() {
     // Valid check for setupInputHandlers to not duplicate
     // ...
 
+    // Selection State Machine
+    let selectionState = 'IDLE'; // IDLE, SELECTING, CONFIRMING
+
     canvas.addEventListener('mousedown', (e) => {
-        if (isDraggingZone) return; // Ignore if dragging zone
+        if (isDraggingZone || isArmed || isTracking) return;
 
-        if (isArmed || isTracking) {
-            // If clicked while tracking, reset? 
-            // Let's allow re-selection
-            isTracking = false;
-            isArmed = false;
-            document.getElementById('status-message').innerText = "Re-selecting...";
-        }
-
-        isSelectionStarted = true;
         const pos = getMousePos(e);
-        selectionStart = pos;
-        selectionRect = { x: pos.x, y: pos.y, width: 0, height: 0 };
+
+        if (selectionState === 'IDLE') {
+            // First Click: Start Selection
+            selectionState = 'SELECTING';
+            isSelectionStarted = true; // For drawing loop
+            selectionStart = pos;
+            selectionRect = { x: pos.x, y: pos.y, width: 0, height: 0 };
+            document.getElementById('status-message').innerText = "Click second point to finish box...";
+            document.getElementById('status-message').className = "status-warn";
+
+        } else if (selectionState === 'SELECTING') {
+            // Second Click: End Selection & Show Confirm
+            selectionState = 'CONFIRMING';
+            // Finalize rect size
+            selectionRect.width = pos.x - selectionStart.x;
+            selectionRect.height = pos.y - selectionStart.y;
+            normalizeSelectionRect();
+
+            if (selectionRect.width > 5 && selectionRect.height > 5) {
+                showConfirmationModal();
+            } else {
+                // Reset if too small
+                cancelSelection();
+            }
+        }
     });
 
     canvas.addEventListener('mousemove', (e) => {
-        if (!isSelectionStarted || isDraggingZone) return;
-        const pos = getMousePos(e);
-        selectionRect.width = pos.x - selectionStart.x;
-        selectionRect.height = pos.y - selectionStart.y;
+        if (isDraggingZone) return;
+
+        if (selectionState === 'SELECTING') {
+            const pos = getMousePos(e);
+            selectionRect.width = pos.x - selectionStart.x;
+            selectionRect.height = pos.y - selectionStart.y;
+        }
     });
 
-    canvas.addEventListener('mouseup', (e) => {
-        if (isDraggingZone) return;
-        isSelectionStarted = false;
+    // Handle Confirm Modal Buttons
+    document.getElementById('confirm-yes').addEventListener('click', () => {
+        document.getElementById('confirm-modal').classList.add('hidden');
+        selectionState = 'IDLE';
+        startTracking();
+    });
 
-        // Normalize Rect (handle negative width dragging)
+    document.getElementById('confirm-no').addEventListener('click', () => {
+        cancelSelection();
+    });
+
+    function normalizeSelectionRect() {
         if (selectionRect.width < 0) {
             selectionRect.x += selectionRect.width;
             selectionRect.width = Math.abs(selectionRect.width);
@@ -362,11 +389,40 @@ function setupInputHandlers() {
             selectionRect.y += selectionRect.height;
             selectionRect.height = Math.abs(selectionRect.height);
         }
+    }
 
-        if (selectionRect.width > 10 && selectionRect.height > 10) {
-            startTracking();
-        }
-    });
+    function cancelSelection() {
+        document.getElementById('confirm-modal').classList.add('hidden');
+        selectionState = 'IDLE';
+        isSelectionStarted = false; // Flag for drawing loop
+        selectionRect = { x: 0, y: 0, width: 0, height: 0 };
+        document.getElementById('status-message').innerText = "Selection cancelled. Try again.";
+        document.getElementById('status-message').className = "status-neutral";
+    }
+
+    function showConfirmationModal() {
+        document.getElementById('confirm-modal').classList.remove('hidden');
+
+        // Generate Preview
+        // 1. Calc Hist for the selection
+        let roi = src.roi(selectionRect);
+        let hsvRoi = new cv.Mat();
+        cv.cvtColor(roi, hsvRoi, cv.COLOR_RGBA2RGB);
+        cv.cvtColor(hsvRoi, hsvRoi, cv.COLOR_RGB2HSV);
+
+        // 2. Filter
+        let maskRoi = new cv.Mat();
+        let low = new cv.Mat(hsvRoi.rows, hsvRoi.cols, hsvRoi.type(), [0, 60, 32, 0]);
+        let high = new cv.Mat(hsvRoi.rows, hsvRoi.cols, hsvRoi.type(), [180, 255, 255, 0]);
+        cv.inRange(hsvRoi, low, high, maskRoi);
+
+        // 3. Show Mask in Preview Canvas
+        // We need to display 'maskRoi' on 'preview-canvas'
+        cv.imshow('preview-canvas', maskRoi);
+
+        // Cleanup
+        roi.delete(); hsvRoi.delete(); maskRoi.delete(); low.delete(); high.delete();
+    }
 
     // Mobile touch support optimization
     canvas.addEventListener('touchstart', (e) => {
@@ -384,7 +440,7 @@ function setupInputHandlers() {
     }, { passive: false });
     canvas.addEventListener('touchend', (e) => {
         if (isDraggingZone) return;
-        const me = new MouseEvent("mouseup", {});
+        const me = new MouseEvent("mouseup", {}); // Mouseup is not used in the new state machine for selection, but keep for consistency if other parts rely on it.
         canvas.dispatchEvent(me);
     });
 

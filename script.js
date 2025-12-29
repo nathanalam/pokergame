@@ -25,6 +25,11 @@ let selectionStart = { x: 0, y: 0 };
 let isTracking = false;
 let isArmed = false;
 
+// Draggable Logic
+let isDraggingZone = false;
+let dragZoneTarget = null;
+let dragOffsets = { x: 0, y: 0 };
+
 // Audio
 const successAudio = new Audio('https://www.myinstants.com/media/sounds/romanceeeeeeeeeeeeee.mp3');
 const failAudio = new Audio('https://www.myinstants.com/media/sounds/tf_nemesis.mp3');
@@ -234,7 +239,67 @@ function setupInputHandlers() {
         };
     }
 
+    // Draggable Zones Setup
+    const zones = document.querySelectorAll('.zone');
+    zones.forEach(zone => {
+        zone.addEventListener('mousedown', (e) => {
+            e.stopPropagation(); // Don't trigger canvas selection
+            isDraggingZone = true;
+            dragZoneTarget = zone;
+            const rect = zone.getBoundingClientRect();
+            dragOffsets.x = e.clientX - rect.left;
+            dragOffsets.y = e.clientY - rect.top;
+        });
+
+        // Touch support for zones
+        zone.addEventListener('touchstart', (e) => {
+            e.stopPropagation();
+            e.preventDefault();
+            const touch = e.touches[0];
+            isDraggingZone = true;
+            dragZoneTarget = zone;
+            const rect = zone.getBoundingClientRect();
+            dragOffsets.x = touch.clientX - rect.left;
+            dragOffsets.y = touch.clientY - rect.top;
+        }, { passive: false });
+    });
+
+    // Global Drag Handlers
+    document.addEventListener('mousemove', (e) => {
+        if (isDraggingZone && dragZoneTarget) {
+            dragZoneTarget.style.left = (e.clientX - dragOffsets.x) + 'px';
+            dragZoneTarget.style.top = (e.clientY - dragOffsets.y) + 'px';
+            dragZoneTarget.style.right = 'auto'; // Clear potential css right align
+        }
+    });
+
+    document.addEventListener('mouseup', () => {
+        isDraggingZone = false;
+        dragZoneTarget = null;
+    });
+
+    // Global Touch Move/End
+    document.addEventListener('touchmove', (e) => {
+        if (isDraggingZone && dragZoneTarget) {
+            e.preventDefault();
+            const touch = e.touches[0];
+            dragZoneTarget.style.left = (touch.clientX - dragOffsets.x) + 'px';
+            dragZoneTarget.style.top = (touch.clientY - dragOffsets.y) + 'px';
+            dragZoneTarget.style.right = 'auto';
+        }
+    }, { passive: false });
+
+    document.addEventListener('touchend', () => {
+        isDraggingZone = false;
+        dragZoneTarget = null;
+    });
+
+    // Valid check for setupInputHandlers to not duplicate
+    // ...
+
     canvas.addEventListener('mousedown', (e) => {
+        if (isDraggingZone) return; // Ignore if dragging zone
+
         if (isArmed || isTracking) {
             // If clicked while tracking, reset? 
             // Let's allow re-selection
@@ -250,13 +315,14 @@ function setupInputHandlers() {
     });
 
     canvas.addEventListener('mousemove', (e) => {
-        if (!isSelectionStarted) return;
+        if (!isSelectionStarted || isDraggingZone) return;
         const pos = getMousePos(e);
         selectionRect.width = pos.x - selectionStart.x;
         selectionRect.height = pos.y - selectionStart.y;
     });
 
     canvas.addEventListener('mouseup', (e) => {
+        if (isDraggingZone) return;
         isSelectionStarted = false;
 
         // Normalize Rect (handle negative width dragging)
@@ -274,19 +340,22 @@ function setupInputHandlers() {
         }
     });
 
-    // Mobile touch support
+    // Mobile touch support optimization
     canvas.addEventListener('touchstart', (e) => {
+        if (isDraggingZone) return;
         const touch = e.touches[0];
         const me = new MouseEvent("mousedown", { clientX: touch.clientX, clientY: touch.clientY });
         canvas.dispatchEvent(me);
     }, { passive: false });
     canvas.addEventListener('touchmove', (e) => {
+        if (isDraggingZone) return;
         e.preventDefault(); // Stop scroll
         const touch = e.touches[0];
         const me = new MouseEvent("mousemove", { clientX: touch.clientX, clientY: touch.clientY });
         canvas.dispatchEvent(me);
     }, { passive: false });
     canvas.addEventListener('touchend', (e) => {
+        if (isDraggingZone) return;
         const me = new MouseEvent("mouseup", {});
         canvas.dispatchEvent(me);
     });

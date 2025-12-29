@@ -67,8 +67,12 @@ html {
 }
 
 video {
-    display: none;
-    /* We draw to canvas instead */
+    position: absolute;
+    top: 0;
+    left: 0;
+    opacity: 0;
+    pointer-events: none;
+    z-index: -1;
 }
 
 #canvas-output {

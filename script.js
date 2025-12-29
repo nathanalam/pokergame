@@ -76,30 +76,55 @@ function startCamera() {
 }
 
 function initOpenCV() {
+    if (!video || video.videoWidth === 0 || video.videoHeight === 0) {
+        console.warn("Video dimensions not ready yet. Retrying...");
+        requestAnimationFrame(initOpenCV);
+        return;
+    }
+
     const width = video.videoWidth;
     const height = video.videoHeight;
+
+    // Resize Canvas to match Video
     canvasOutput.width = width;
     canvasOutput.height = height;
 
+    // Cleanup old Mats if they exist
+    if (src) src.delete();
+    if (dst) dst.delete();
+    if (hsv) hsv.delete();
+    if (hue) hue.delete();
+    if (mask) mask.delete();
+    if (hist) hist.delete();
+    if (hsvVec) hsvVec.delete();
+
     // Initialize Mats
-    cap = new cv.VideoCapture(video);
-    src = new cv.Mat(height, width, cv.CV_8UC4);
-    dst = new cv.Mat(height, width, cv.CV_8UC4);
-    hsv = new cv.Mat(height, width, cv.CV_8UC3);
-    hue = new cv.Mat(height, width, cv.CV_8UC1);
-    mask = new cv.Mat(height, width, cv.CV_8UC1);
-    hist = new cv.Mat();
-    hsvVec = new cv.MatVector();
-    hsvVec.push_back(hsv);
+    try {
+        if (!cap) cap = new cv.VideoCapture(video);
+        src = new cv.Mat(height, width, cv.CV_8UC4);
+        dst = new cv.Mat(height, width, cv.CV_8UC4);
+        hsv = new cv.Mat(height, width, cv.CV_8UC3);
+        hue = new cv.Mat(height, width, cv.CV_8UC1);
+        mask = new cv.Mat(height, width, cv.CV_8UC1);
+        hist = new cv.Mat();
+        hsvVec = new cv.MatVector();
+        hsvVec.push_back(hsv);
 
-    // Termination criteria for CamShift: (EPS | COUNT, 10 iterations, 1px movement)
-    // Basically stop if it moves <1px or hits 10 loops
-    termCrit = new cv.TermCriteria(cv.TermCriteria_EPS | cv.TermCriteria_COUNT, 10, 1);
+        // Termination criteria for CamShift: (EPS | COUNT, 10 iterations, 1px movement)
+        termCrit = new cv.TermCriteria(cv.TermCriteria_EPS | cv.TermCriteria_COUNT, 10, 1);
 
-    // Render Loop
-    requestAnimationFrame(processFrame);
+        console.log(`OpenCV Initialized: ${width}x${height}`);
 
-    // Attach Listeners
+        // Only start loop if not already running
+        if (!isStreaming) {
+            isStreaming = true;
+            requestAnimationFrame(processFrame);
+        }
+    } catch (e) {
+        console.error("OpenCV Init Error:", e);
+    }
+
+    // Attach Listeners if not already attached (check a flag, but for now simple is fine function is idempotent enough or we can move it out)
     setupInputHandlers();
 }
 
@@ -107,6 +132,19 @@ function processFrame() {
     if (!isStreaming) return;
 
     try {
+        if (video.videoWidth === 0 || video.videoHeight === 0) {
+            requestAnimationFrame(processFrame);
+            return;
+        }
+
+        // Handle Resize (Re-init if dimensions mismatch)
+        if (src && (video.videoWidth !== src.cols || video.videoHeight !== src.rows)) {
+            console.log("Video resized. Re-initializing OpenCV...");
+            initOpenCV();
+            // will start next frame
+            return;
+        }
+
         cap.read(src); // Read frame from video
 
         // Mirror effect for UX (flip horizontally)
@@ -118,28 +156,13 @@ function processFrame() {
             cv.cvtColor(hsv, hsv, cv.COLOR_RGB2HSV);
 
             // 2. Extract Hue (channel 0)
-            // But we actually use ranges inBackProject
-            // Let's refine for cv.calcBackProject: expects an array of images.
-            // We need to calculate BackProjection based on Histogram 'hist'
-
             // InRange to filter out weak saturation/dark values (noise reduction)
             let low = new cv.Mat(hsv.rows, hsv.cols, hsv.type(), [0, 60, 32, 0]);
             let high = new cv.Mat(hsv.rows, hsv.cols, hsv.type(), [180, 255, 255, 0]);
             cv.inRange(hsv, low, high, mask);
-            low.delete(); high.delete(); // Cleanup temp mats
+            low.delete(); high.delete();
 
             // 3. BackProject
-            // args: images, channels, hist, dst, ranges, scale
-            // channels = [0] (hue)
-            let ch = [0];
-            // ranges = [0, 180]
-
-            // For CalcBackProject to work accurately in JS, we need Vector
-            // hsvVec already has hsv
-
-            // Use just Hue channel for BackProject? 
-            // Often standard implementation extracts Hue first.
-            // Let's extract Hue Channel 0 to 'hue' Mat
             let vectorOfMats = new cv.MatVector();
             vectorOfMats.push_back(hsv);
 
@@ -179,7 +202,11 @@ function processFrame() {
         cv.imshow('canvas-output', src);
 
     } catch (err) {
+        // If specific size error, suppress loop to prevent crash loop, or just log once
         console.error("CV Loop Error:", err);
+        isStreaming = false; // Emergency stop
+        setTimeout(() => { isStreaming = true; requestAnimationFrame(processFrame); }, 2000); // Retry after 2s
+        return;
     }
 
     requestAnimationFrame(processFrame);

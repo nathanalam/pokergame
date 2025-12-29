@@ -82,6 +82,11 @@ function initOpenCV() {
         return;
     }
 
+    // CRITICAL FIX: OpenCV.js VideoCapture reads width/height attributes
+    // We must sync them to the actual stream dimensions
+    video.width = video.videoWidth;
+    video.height = video.videoHeight;
+
     const width = video.videoWidth;
     const height = video.videoHeight;
 
@@ -100,7 +105,9 @@ function initOpenCV() {
 
     // Initialize Mats
     try {
-        if (!cap) cap = new cv.VideoCapture(video);
+        // Re-create VideoCapture to ensure it picks up the new attributes
+        cap = new cv.VideoCapture(video);
+
         src = new cv.Mat(height, width, cv.CV_8UC4);
         dst = new cv.Mat(height, width, cv.CV_8UC4);
         hsv = new cv.Mat(height, width, cv.CV_8UC3);
@@ -110,7 +117,7 @@ function initOpenCV() {
         hsvVec = new cv.MatVector();
         hsvVec.push_back(hsv);
 
-        // Termination criteria for CamShift: (EPS | COUNT, 10 iterations, 1px movement)
+        // Termination criteria for CamShift
         termCrit = new cv.TermCriteria(cv.TermCriteria_EPS | cv.TermCriteria_COUNT, 10, 1);
 
         console.log(`OpenCV Initialized: ${width}x${height}`);
@@ -124,7 +131,6 @@ function initOpenCV() {
         console.error("OpenCV Init Error:", e);
     }
 
-    // Attach Listeners if not already attached (check a flag, but for now simple is fine function is idempotent enough or we can move it out)
     setupInputHandlers();
 }
 
@@ -156,7 +162,6 @@ function processFrame() {
             cv.cvtColor(hsv, hsv, cv.COLOR_RGB2HSV);
 
             // 2. Extract Hue (channel 0)
-            // InRange to filter out weak saturation/dark values (noise reduction)
             let low = new cv.Mat(hsv.rows, hsv.cols, hsv.type(), [0, 60, 32, 0]);
             let high = new cv.Mat(hsv.rows, hsv.cols, hsv.type(), [180, 255, 255, 0]);
             cv.inRange(hsv, low, high, mask);
@@ -174,12 +179,9 @@ function processFrame() {
             vectorOfMats.delete();
 
             // 4. CamShift
-            // trackWindow is {x, y, width, height}
-            // CamShift modifies trackWindow
             [trackBox, trackWindow] = cv.CamShift(hue, trackWindow, termCrit);
 
             // 5. Draw Results
-            // trackBox is RotatedRect { center, size, angle }
             drawRotatedRect(trackBox, src);
 
             // Visualization for user (Debug Mask)
@@ -202,10 +204,9 @@ function processFrame() {
         cv.imshow('canvas-output', src);
 
     } catch (err) {
-        // If specific size error, suppress loop to prevent crash loop, or just log once
         console.error("CV Loop Error:", err);
-        isStreaming = false; // Emergency stop
-        setTimeout(() => { isStreaming = true; requestAnimationFrame(processFrame); }, 2000); // Retry after 2s
+        isStreaming = false;
+        setTimeout(() => { isStreaming = true; requestAnimationFrame(processFrame); }, 2000);
         return;
     }
 

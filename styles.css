@@ -1,0 +1,222 @@
+:root {
+    --bg-color: #050a05;
+    --text-color: #e0e0e0;
+    --accent-gold: #d4af37;
+    --felt-green: #0a3510;
+    --yes-green: #2ecc71;
+    --no-red: #e74c3c;
+    --font-main: 'Playfair Display', serif;
+}
+
+body {
+    margin: 0;
+    padding: 0;
+    background-color: var(--bg-color);
+    color: var(--text-color);
+    font-family: var(--font-main);
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    height: 100vh;
+}
+
+#app-container {
+    position: relative;
+    width: 100%;
+    max-width: 1024px;
+    aspect-ratio: 4/3;
+    border: 2px solid var(--accent-gold);
+    box-shadow: 0 0 20px rgba(212, 175, 55, 0.2);
+    background: #000;
+}
+
+video,
+canvas {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    pointer-events: none;
+    /* Allow clicks to pass through if necessary, but video needs auto? No, if none, passes to... body? */
+}
+
+/* We actually need video to receive clicks, but canvas is on top.
+   So let's make canvas none, video auto. */
+video {
+    pointer-events: auto;
+}
+
+canvas {
+    pointer-events: none;
+}
+
+#ui-layer {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    z-index: 10;
+    pointer-events: none;
+}
+
+/* Draggable Zones */
+.zone {
+    position: absolute;
+    border: 2px solid;
+    background: rgba(255, 255, 255, 0.1);
+    resize: both;
+    overflow: hidden;
+    pointer-events: auto;
+    /* Allow interaction */
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: white;
+    font-weight: bold;
+    text-shadow: 0 1px 2px black;
+    cursor: grab;
+    min-width: 50px;
+    min-height: 50px;
+}
+
+.zone::after {
+    content: '';
+    position: absolute;
+    bottom: 0;
+    right: 0;
+    width: 10px;
+    height: 10px;
+    background: white;
+    cursor: nwse-resize;
+    /* Custom resize handle feel */
+}
+
+#yes-zone {
+    border-color: var(--yes-green);
+    top: 20%;
+    left: 10%;
+    width: 150px;
+    height: 150px;
+}
+
+#no-zone {
+    border-color: var(--no-red);
+    top: 20%;
+    right: 10%;
+    width: 150px;
+    height: 150px;
+}
+
+/* Controls & Setup */
+#controls {
+    position: absolute;
+    bottom: 20px;
+    left: 50%;
+    transform: translateX(-50%);
+    text-align: center;
+    pointer-events: auto;
+    background: rgba(0, 0, 0, 0.8);
+    padding: 20px;
+    border: 1px solid var(--accent-gold);
+    border-radius: 8px;
+    width: 80%;
+}
+
+h1 {
+    margin: 0 0 10px 0;
+    color: var(--accent-gold);
+}
+
+p {
+    font-size: 0.9rem;
+    margin-bottom: 20px;
+}
+
+button {
+    background: var(--felt-green);
+    color: var(--accent-gold);
+    border: 1px solid var(--accent-gold);
+    padding: 10px 30px;
+    font-family: var(--font-main);
+    font-size: 1.2rem;
+    cursor: pointer;
+    transition: all 0.3s ease;
+    text-transform: uppercase;
+    letter-spacing: 2px;
+}
+
+button:hover {
+    background: var(--accent-gold);
+    color: var(--felt-green);
+}
+
+#status-indicator {
+    position: absolute;
+    top: 20px;
+    left: 20px;
+    color: var(--yes-green);
+    font-size: 0.8rem;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    background: rgba(0, 0, 0, 0.5);
+    padding: 5px 10px;
+    border: 1px solid var(--yes-green);
+    display: none;
+    /* Hidden strictly until armed */
+}
+
+/* Overlays */
+#active-overlay {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100vw;
+    height: 100vh;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 100;
+    pointer-events: none;
+    opacity: 0;
+    transition: opacity 0.5s;
+}
+
+#active-overlay.visible {
+    opacity: 1;
+    background: rgba(0, 0, 0, 0.8);
+}
+
+#message-text {
+    font-size: 5rem;
+    color: var(--accent-gold);
+    text-align: center;
+    text-shadow: 0 0 30px rgba(212, 175, 55, 0.5);
+}
+
+.toast {
+    position: fixed;
+    bottom: 50px;
+    left: 50%;
+    transform: translateX(-50%);
+    background: rgba(231, 76, 60, 0.9);
+    color: white;
+    padding: 15px 30px;
+    border-radius: 4px;
+    font-size: 1.2rem;
+    opacity: 0;
+    transition: opacity 0.3s;
+    z-index: 101;
+}
+
+.toast.visible {
+    opacity: 1;
+}
+
+.hidden {
+    display: none !important;
+}

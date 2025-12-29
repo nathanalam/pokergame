@@ -161,19 +161,21 @@ function processFrame() {
             cv.cvtColor(src, hsv, cv.COLOR_RGBA2RGB);
             cv.cvtColor(hsv, hsv, cv.COLOR_RGB2HSV);
 
-            // 2. Extract Hue (channel 0)
-            let low = new cv.Mat(hsv.rows, hsv.cols, hsv.type(), [0, 60, 32, 0]);
+            // 2. Extract Hue + Sat (channel 0+1)
+            // Filter match startTracking
+            let low = new cv.Mat(hsv.rows, hsv.cols, hsv.type(), [0, 10, 10, 0]);
             let high = new cv.Mat(hsv.rows, hsv.cols, hsv.type(), [180, 255, 255, 0]);
             cv.inRange(hsv, low, high, mask);
             low.delete(); high.delete();
 
-            // 3. BackProject
+            // 3. BackProject with [0, 1]
             let vectorOfMats = new cv.MatVector();
             vectorOfMats.push_back(hsv);
 
-            cv.calcBackProject(vectorOfMats, [0], hist, hue, [0, 180], 1);
+            // Channels [0, 1], Ranges [0, 180, 0, 256]
+            cv.calcBackProject(vectorOfMats, [0, 1], hist, hue, [0, 180, 0, 256], 1);
 
-            // Bitwise AND with mask (saturation/value filter)
+            // Bitwise AND with mask
             cv.bitwise_and(hue, mask, hue);
 
             vectorOfMats.delete();
@@ -185,6 +187,7 @@ function processFrame() {
             drawRotatedRect(trackBox, src);
 
             // Visualization for user (Debug Mask)
+            // Note: 'hue' mat now contains the backprojection probability map, not just raw hue
             cv.imshow('mask-output', hue);
 
             // GAME LOGIC
@@ -215,7 +218,6 @@ function processFrame() {
 
 function startTracking() {
     // 1. Convert ROI to HSV
-    // ROI = [x, y, w, h]
     if (selectionRect.width <= 0 || selectionRect.height <= 0) return;
 
     let roi = src.roi(selectionRect);
@@ -223,19 +225,23 @@ function startTracking() {
     cv.cvtColor(roi, hsvRoi, cv.COLOR_RGBA2RGB);
     cv.cvtColor(hsvRoi, hsvRoi, cv.COLOR_RGB2HSV);
 
-    // 2. Filter low saturation/brightness
+    // 2. Filter - RELAXED for dark objects
+    // Old: [0, 60, 32, 0] -> blocked black/gray
+    // New: [0, 10, 10, 0] -> allows dark & low saturation items
     let maskRoi = new cv.Mat();
-    let low = new cv.Mat(hsvRoi.rows, hsvRoi.cols, hsvRoi.type(), [0, 60, 32, 0]);
+    let low = new cv.Mat(hsvRoi.rows, hsvRoi.cols, hsvRoi.type(), [0, 10, 10, 0]);
     let high = new cv.Mat(hsvRoi.rows, hsvRoi.cols, hsvRoi.type(), [180, 255, 255, 0]);
     cv.inRange(hsvRoi, low, high, maskRoi);
 
-    // 3. Calc Histogram
+    // 3. Calc Histogram using Hue (0) AND Saturation (1)
+    // This helps distinguish "Dark Black" (Low Sat) from "Bright Red" (High Sat) even if Hue is unstable
     let roiVec = new cv.MatVector();
     roiVec.push_back(hsvRoi);
 
-    // Channels [0], Mask maskRoi, Hist hist, bins [16] (Quantize hue for better stability), ranges [0, 180]
-    // Note: Using fewer bins (16-30) usually stabilizes CamShift better than 180 bins
-    cv.calcHist(roiVec, [0], maskRoi, hist, [16], [0, 180]);
+    // Channels [0, 1] -> Hue, Saturation
+    // Bins [16, 16]
+    // Ranges [0, 180, 0, 256]
+    cv.calcHist(roiVec, [0, 1], maskRoi, hist, [16, 16], [0, 180, 0, 256]);
     cv.normalize(hist, hist, 0, 255, cv.NORM_MINMAX);
 
     // 4. Set Initial Window
@@ -247,7 +253,7 @@ function startTracking() {
     isTracking = true;
 
     // UI Updates
-    document.getElementById('status-message').innerText = "Object Profiled. Tracking Active.";
+    document.getElementById('status-message').innerText = "Target Locked.";
     document.getElementById('status-message').className = "status-ok";
     document.getElementById('start-btn').disabled = false;
     document.getElementById('start-btn').focus();

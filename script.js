@@ -134,6 +134,9 @@ function initOpenCV() {
     setupInputHandlers();
 }
 
+// Track center point global
+let currentCenter = { x: 0, y: 0 };
+
 function processFrame() {
     if (!isStreaming) return;
 
@@ -143,67 +146,64 @@ function processFrame() {
             return;
         }
 
-        // Handle Resize (Re-init if dimensions mismatch)
         if (src && (video.videoWidth !== src.cols || video.videoHeight !== src.rows)) {
             console.log("Video resized. Re-initializing OpenCV...");
             initOpenCV();
-            // will start next frame
             return;
         }
 
-        cap.read(src); // Read frame from video
-
-        // Mirror effect for UX (flip horizontally)
+        cap.read(src);
         cv.flip(src, src, 1);
 
         if (isTracking) {
-            // 1. Convert to HSV
+            // 1. HSV
             cv.cvtColor(src, hsv, cv.COLOR_RGBA2RGB);
             cv.cvtColor(hsv, hsv, cv.COLOR_RGB2HSV);
 
-            // 2. Extract Hue + Sat (channel 0+1)
-            // Filter match startTracking
-            let low = new cv.Mat(hsv.rows, hsv.cols, hsv.type(), [0, 10, 10, 0]);
+            // 2. Filter - Slightly tighter to prevent noise flood
+            // [0, 25, 20, 0] allows dark objects but cuts extreme noise
+            let low = new cv.Mat(hsv.rows, hsv.cols, hsv.type(), [0, 25, 20, 0]);
             let high = new cv.Mat(hsv.rows, hsv.cols, hsv.type(), [180, 255, 255, 0]);
             cv.inRange(hsv, low, high, mask);
             low.delete(); high.delete();
 
-            // 3. BackProject with [0, 1]
+            // 3. BackProject
             let vectorOfMats = new cv.MatVector();
             vectorOfMats.push_back(hsv);
-
-            // Channels [0, 1], Ranges [0, 180, 0, 256]
             cv.calcBackProject(vectorOfMats, [0, 1], hist, hue, [0, 180, 0, 256], 1);
-
-            // Bitwise AND with mask
             cv.bitwise_and(hue, mask, hue);
-
             vectorOfMats.delete();
 
-            // 4. CamShift
-            [trackBox, trackWindow] = cv.CamShift(hue, trackWindow, termCrit);
+            // 4. MeanShift (Fixed Size Window)
+            // Replaces CamShift to stop "Growing Box" issue
+            cv.meanShift(hue, trackWindow, termCrit);
+
+            // Calculate Center
+            currentCenter.x = trackWindow.x + trackWindow.width / 2;
+            currentCenter.y = trackWindow.y + trackWindow.height / 2;
 
             // 5. Draw Results
-            drawRotatedRect(trackBox, src);
+            let p1 = new cv.Point(trackWindow.x, trackWindow.y);
+            let p2 = new cv.Point(trackWindow.x + trackWindow.width, trackWindow.y + trackWindow.height);
+            cv.rectangle(src, p1, p2, new cv.Scalar(0, 255, 0, 255), 3); // Green Box
+            cv.circle(src, currentCenter, 5, new cv.Scalar(0, 0, 255, 255), -1); // Blue Dot
 
-            // Visualization for user (Debug Mask)
-            // Note: 'hue' mat now contains the backprojection probability map, not just raw hue
+            // Visualize Mask
             cv.imshow('mask-output', hue);
 
             // GAME LOGIC
             if (isArmed) {
-                checkZones(trackBox.center);
+                checkZones(currentCenter);
             }
 
         } else if (isSelectionStarted) {
-            // Visualize selection box while dragging
+            // Visualize selection
             let color = new cv.Scalar(255, 0, 0, 255);
             let p1 = new cv.Point(selectionRect.x, selectionRect.y);
             let p2 = new cv.Point(selectionRect.x + selectionRect.width, selectionRect.y + selectionRect.height);
             cv.rectangle(src, p1, p2, color, 2);
         }
 
-        // Draw final result to canvas
         cv.imshow('canvas-output', src);
 
     } catch (err) {
@@ -217,7 +217,6 @@ function processFrame() {
 }
 
 function startTracking() {
-    // 1. Convert ROI to HSV
     if (selectionRect.width <= 0 || selectionRect.height <= 0) return;
 
     let roi = src.roi(selectionRect);
@@ -225,34 +224,25 @@ function startTracking() {
     cv.cvtColor(roi, hsvRoi, cv.COLOR_RGBA2RGB);
     cv.cvtColor(hsvRoi, hsvRoi, cv.COLOR_RGB2HSV);
 
-    // 2. Filter - RELAXED for dark objects
-    // Old: [0, 60, 32, 0] -> blocked black/gray
-    // New: [0, 10, 10, 0] -> allows dark & low saturation items
+    // Filter Setup (Match ProcessFrame)
     let maskRoi = new cv.Mat();
-    let low = new cv.Mat(hsvRoi.rows, hsvRoi.cols, hsvRoi.type(), [0, 10, 10, 0]);
+    let low = new cv.Mat(hsvRoi.rows, hsvRoi.cols, hsvRoi.type(), [0, 25, 20, 0]);
     let high = new cv.Mat(hsvRoi.rows, hsvRoi.cols, hsvRoi.type(), [180, 255, 255, 0]);
     cv.inRange(hsvRoi, low, high, maskRoi);
 
-    // 3. Calc Histogram using Hue (0) AND Saturation (1)
-    // This helps distinguish "Dark Black" (Low Sat) from "Bright Red" (High Sat) even if Hue is unstable
+    // Hist
     let roiVec = new cv.MatVector();
     roiVec.push_back(hsvRoi);
-
-    // Channels [0, 1] -> Hue, Saturation
-    // Bins [16, 16]
-    // Ranges [0, 180, 0, 256]
     cv.calcHist(roiVec, [0, 1], maskRoi, hist, [16, 16], [0, 180, 0, 256]);
     cv.normalize(hist, hist, 0, 255, cv.NORM_MINMAX);
 
-    // 4. Set Initial Window
+    // Track Window
     trackWindow = new cv.Rect(selectionRect.x, selectionRect.y, selectionRect.width, selectionRect.height);
 
-    // Cleanup
     roi.delete(); hsvRoi.delete(); maskRoi.delete(); low.delete(); high.delete(); roiVec.delete();
 
     isTracking = true;
 
-    // UI Updates
     document.getElementById('status-message').innerText = "Target Locked.";
     document.getElementById('status-message').className = "status-ok";
     document.getElementById('start-btn').disabled = false;

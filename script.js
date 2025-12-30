@@ -100,6 +100,7 @@ function initOpenCV() {
     canvasOutput.height = height;
 
     // Cleanup
+    if (src) src.delete();
     if (oldGray) oldGray.delete();
     if (newGray) newGray.delete();
     if (p0) p0.delete();
@@ -112,20 +113,17 @@ function initOpenCV() {
     try {
         cap = new cv.VideoCapture(video);
 
-        // We need 2 frames for Optical Flow
+        src = new cv.Mat(height, width, cv.CV_8UC4);
         oldGray = new cv.Mat(height, width, cv.CV_8UC1);
         newGray = new cv.Mat(height, width, cv.CV_8UC1);
 
-        // These hold the points
-        p0 = new cv.Mat(); // Previous points
-        p1 = new cv.Mat(); // New points
-        st = new cv.Mat(); // Status 
-        err = new cv.Mat(); // Error
-
-        // Mask for creating ROI for 'goodFeaturesToTrack'
+        p0 = new cv.Mat();
+        p1 = new cv.Mat();
+        st = new cv.Mat();
+        err = new cv.Mat();
         mask = new cv.Mat(height, width, cv.CV_8UC1);
 
-        console.log(`OpenCV Initialized: ${width}x${height} `);
+        console.log(`OpenCV Initialized: ${width}x${height}`);
 
         if (!isStreaming) {
             isStreaming = true;
@@ -133,11 +131,9 @@ function initOpenCV() {
         }
 
         // Read first frame to ensure oldGray is populated
-        let frameMap = new cv.Mat(height, width, cv.CV_8UC4);
-        cap.read(frameMap);
-        cv.flip(frameMap, frameMap, 1);
-        cv.cvtColor(frameMap, oldGray, cv.COLOR_RGBA2GRAY);
-        frameMap.delete();
+        cap.read(src);
+        cv.flip(src, src, 1);
+        cv.cvtColor(src, oldGray, cv.COLOR_RGBA2GRAY);
 
     } catch (e) {
         console.error("OpenCV Init Error:", e);

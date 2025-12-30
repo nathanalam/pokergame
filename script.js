@@ -161,17 +161,21 @@ function startTracking() {
     // 2. Detect "Good Features to Track" (Corners/High Contrast)
     // maxCorners: 100, qualityLevel: 0.3, minDistance: 7, blockSize: 7
     try {
-        cv.goodFeaturesToTrack(oldGray, p0, 100, 0.3, 7, mask, 7);
+        // Ensure oldGray is fresh
+        cv.cvtColor(src, oldGray, cv.COLOR_RGBA2GRAY);
+
+        // maxCorners: 100, qualityLevel: 0.01 (very sensitive), minDistance: 5
+        cv.goodFeaturesToTrack(oldGray, p0, 100, 0.01, 5, mask, 3);
 
         if (p0.rows === 0) {
-            alert("No discernable features found in selection. Try selecting a more textured part of the object.");
+            alert("No features found. Try selecting an area with more contrast.");
             return;
         }
 
         trackBox = { ...selectionRect };
         isTracking = true;
 
-        document.getElementById('status-message').innerText = `Locked ${p0.rows} Feature Points.`;
+        document.getElementById('status-message').innerText = `Locked ${p0.rows} points.`;
         document.getElementById('status-message').className = "status-ok";
         document.getElementById('start-btn').disabled = false;
         document.getElementById('start-btn').focus();
@@ -185,12 +189,12 @@ function processFrame() {
     if (!isStreaming) return;
 
     try {
-        let frame = new cv.Mat(video.height, video.width, cv.CV_8UC4);
-        cap.read(frame);
-        cv.flip(frame, frame, 1);
+        // src is already initialized in initOpenCV and reused
+        cap.read(src);
+        cv.flip(src, src, 1);
 
         // Convert to Gray
-        cv.cvtColor(frame, newGray, cv.COLOR_RGBA2GRAY);
+        cv.cvtColor(src, newGray, cv.COLOR_RGBA2GRAY);
 
         if (isTracking) {
             // Calculate Optical Flow
@@ -205,7 +209,6 @@ function processFrame() {
 
                 // Select good points
                 let goodNew = [];
-                let goodOld = [];
                 let dx_sum = 0;
                 let dy_sum = 0;
                 let count = 0;
@@ -217,22 +220,24 @@ function processFrame() {
                         let ox = p0.data32F[i * 2];
                         let oy = p0.data32F[i * 2 + 1];
 
-                        goodNew.push(new cv.Point(nx, ny));
-                        goodOld.push(new cv.Point(ox, oy));
+                        // Check if point moved crazy amount (outlier)
+                        let dist = Math.sqrt((nx - ox) * (nx - ox) + (ny - oy) * (ny - oy));
+                        if (dist < 50) {
+                            goodNew.push(new cv.Point(nx, ny));
+                            dx_sum += (nx - ox);
+                            dy_sum += (ny - oy);
+                            count++;
 
-                        dx_sum += (nx - ox);
-                        dy_sum += (ny - oy);
-                        count++;
-
-                        // Draw Tracking Points (Digital Velcro)
-                        cv.circle(frame, new cv.Point(nx, ny), 3, new cv.Scalar(0, 255, 255, 255), -1);
+                            // Draw Tracking Points (Digital Velcro)
+                            cv.circle(src, new cv.Point(nx, ny), 3, new cv.Scalar(0, 255, 255, 255), -1);
+                        }
                     }
                 }
 
-                if (count < 5) {
+                if (count < 4) {
                     // Lost tracking
                     isTracking = false;
-                    document.getElementById('status-message').innerText = "Lost Tracking. Select Again.";
+                    document.getElementById('status-message').innerText = "Lost Tracking.";
                     document.getElementById('status-message').className = "status-warn";
                     isArmed = false;
                 } else {
@@ -257,25 +262,25 @@ function processFrame() {
                     // Draw Box
                     let p1_box = new cv.Point(trackBox.x, trackBox.y);
                     let p2_box = new cv.Point(trackBox.x + trackBox.width, trackBox.y + trackBox.height);
-                    cv.rectangle(frame, p1_box, p2_box, new cv.Scalar(0, 255, 0, 255), 2);
-                    cv.circle(frame, currentCenter, 5, new cv.Scalar(0, 0, 255, 255), -1);
+                    cv.rectangle(src, p1_box, p2_box, new cv.Scalar(0, 255, 0, 255), 2);
+                    cv.circle(src, currentCenter, 5, new cv.Scalar(0, 0, 255, 255), -1);
 
                     if (isArmed) checkZones(currentCenter);
                 }
             }
         }
-        else if (isSelectionStarted && (selectionState === 'SELECTING' || selectionState === 'CONFIRMING')) {
+        else if (selectionState === 'SELECTING' || selectionState === 'CONFIRMING') {
+            // ALWAYS Draw Selection Box if we are selecting
             let color = new cv.Scalar(255, 0, 0, 255);
             let p1_sel = new cv.Point(selectionRect.x, selectionRect.y);
             let p2_sel = new cv.Point(selectionRect.x + selectionRect.width, selectionRect.y + selectionRect.height);
-            cv.rectangle(frame, p1_sel, p2_sel, color, 2);
+            cv.rectangle(src, p1_sel, p2_sel, color, 2);
         }
 
-        cv.imshow('canvas-output', frame);
+        cv.imshow('canvas-output', src);
 
         // Critical: Update oldGray
         newGray.copyTo(oldGray);
-        frame.delete();
 
     } catch (e) {
         console.error("Loop Error:", e);

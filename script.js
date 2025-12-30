@@ -1,4 +1,3 @@
-
 // State Variables
 let video = null;
 let canvasOutput = null;
@@ -6,6 +5,7 @@ let maskCanvas = null;
 let stream = null;
 let vc = null;
 let cap = null;
+let src = null; // Defined Globally
 
 // Optical Flow Globals
 let oldGray = null;

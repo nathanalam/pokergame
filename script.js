@@ -1,21 +1,22 @@
+```javascript
 
 // State Variables
 let video = null;
 let canvasOutput = null;
 let maskCanvas = null;
 let stream = null;
-let vc = null; // Video Capture
-let cap = null; // OpenCV Video Capture
-let src = null;
-let dst = null;
-let hsv = null;
-let hue = null;
-let mask = null;
-let hist = null;
-let hsvVec = null;
-let termCrit = null;
-let trackWindow = null;
-let trackBox = null;
+let vc = null;
+let cap = null;
+
+// Optical Flow Globals
+let oldGray = null;
+let newGray = null;
+let p0 = null;
+let p1 = null;
+let st = null;
+let err = null;
+let mask = null; // for specifying ROI to find features
+let zeroEle = null; // for visualization mask (not used heavily but kept)
 
 // UI State
 let isStreaming = false;
@@ -24,11 +25,16 @@ let selectionRect = { x: 0, y: 0, width: 0, height: 0 };
 let selectionStart = { x: 0, y: 0 };
 let isTracking = false;
 let isArmed = false;
+let selectionState = 'IDLE';
 
 // Draggable Logic
 let isDraggingZone = false;
 let dragZoneTarget = null;
 let dragOffsets = { x: 0, y: 0 };
+
+// Track center point global
+let currentCenter = { x: 0, y: 0 };
+let trackBox = { x: 0, y: 0, width: 0, height: 0 };
 
 // Audio
 const successAudio = new Audio('https://www.myinstants.com/media/sounds/romanceeeeeeeeeeeeee.mp3');
@@ -94,159 +100,189 @@ function initOpenCV() {
     canvasOutput.width = width;
     canvasOutput.height = height;
 
-    // Cleanup old Mats if they exist
-    if (src) src.delete();
-    if (dst) dst.delete();
-    if (hsv) hsv.delete();
-    if (hue) hue.delete();
+    // Cleanup
+    if (oldGray) oldGray.delete();
+    if (newGray) newGray.delete();
+    if (p0) p0.delete();
+    if (p1) p1.delete();
+    if (st) st.delete();
+    if (err) err.delete();
     if (mask) mask.delete();
-    if (hist) hist.delete();
-    if (hsvVec) hsvVec.delete();
 
-    // Initialize Mats
+    // Init Mats
     try {
-        // Re-create VideoCapture to ensure it picks up the new attributes
         cap = new cv.VideoCapture(video);
+        
+        // We need 2 frames for Optical Flow
+        oldGray = new cv.Mat(height, width, cv.CV_8UC1);
+        newGray = new cv.Mat(height, width, cv.CV_8UC1);
+        
+        // These hold the points
+        p0 = new cv.Mat(); // Previous points
+        p1 = new cv.Mat(); // New points
+        st = new cv.Mat(); // Status 
+        err = new cv.Mat(); // Error
 
-        src = new cv.Mat(height, width, cv.CV_8UC4);
-        dst = new cv.Mat(height, width, cv.CV_8UC4);
-        hsv = new cv.Mat(height, width, cv.CV_8UC3);
-        hue = new cv.Mat(height, width, cv.CV_8UC1);
+        // Mask for creating ROI for 'goodFeaturesToTrack'
         mask = new cv.Mat(height, width, cv.CV_8UC1);
-        hist = new cv.Mat();
-        hsvVec = new cv.MatVector();
-        hsvVec.push_back(hsv);
 
-        // Termination criteria for CamShift
-        termCrit = new cv.TermCriteria(cv.TermCriteria_EPS | cv.TermCriteria_COUNT, 10, 1);
-
-        console.log(`OpenCV Initialized: ${width}x${height}`);
-
-        // Only start loop if not already running
+        console.log(`OpenCV Initialized: ${ width }x${ height } `);
+        
         if (!isStreaming) {
-            isStreaming = true;
-            requestAnimationFrame(processFrame);
+             isStreaming = true;
+             requestAnimationFrame(processFrame);
         }
+        
+        // Read first frame to ensure oldGray is populated
+        let frameMap = new cv.Mat(height, width, cv.CV_8UC4);
+        cap.read(frameMap);
+        cv.flip(frameMap, frameMap, 1);
+        cv.cvtColor(frameMap, oldGray, cv.COLOR_RGBA2GRAY);
+        frameMap.delete();
+
     } catch (e) {
         console.error("OpenCV Init Error:", e);
     }
-
+    
     setupInputHandlers();
-}
-
-// Track center point global
-let currentCenter = { x: 0, y: 0 };
-
-function processFrame() {
-    if (!isStreaming) return;
-
-    try {
-        if (video.videoWidth === 0 || video.videoHeight === 0) {
-            requestAnimationFrame(processFrame);
-            return;
-        }
-
-        if (src && (video.videoWidth !== src.cols || video.videoHeight !== src.rows)) {
-            console.log("Video resized. Re-initializing OpenCV...");
-            initOpenCV();
-            return;
-        }
-
-        cap.read(src);
-        cv.flip(src, src, 1);
-
-        if (isTracking) {
-            // 1. HSV
-            cv.cvtColor(src, hsv, cv.COLOR_RGBA2RGB);
-            cv.cvtColor(hsv, hsv, cv.COLOR_RGB2HSV);
-
-            // 2. Filter - Slightly tighter to prevent noise flood
-            // [0, 25, 20, 0] allows dark objects but cuts extreme noise
-            let low = new cv.Mat(hsv.rows, hsv.cols, hsv.type(), [0, 25, 20, 0]);
-            let high = new cv.Mat(hsv.rows, hsv.cols, hsv.type(), [180, 255, 255, 0]);
-            cv.inRange(hsv, low, high, mask);
-            low.delete(); high.delete();
-
-            // 3. BackProject
-            let vectorOfMats = new cv.MatVector();
-            vectorOfMats.push_back(hsv);
-            cv.calcBackProject(vectorOfMats, [0, 1], hist, hue, [0, 180, 0, 256], 1);
-            cv.bitwise_and(hue, mask, hue);
-            vectorOfMats.delete();
-
-            // 4. MeanShift (Fixed Size Window)
-            // Replaces CamShift to stop "Growing Box" issue
-            cv.meanShift(hue, trackWindow, termCrit);
-
-            // Calculate Center
-            currentCenter.x = trackWindow.x + trackWindow.width / 2;
-            currentCenter.y = trackWindow.y + trackWindow.height / 2;
-
-            // 5. Draw Results
-            let p1 = new cv.Point(trackWindow.x, trackWindow.y);
-            let p2 = new cv.Point(trackWindow.x + trackWindow.width, trackWindow.y + trackWindow.height);
-            cv.rectangle(src, p1, p2, new cv.Scalar(0, 255, 0, 255), 3); // Green Box
-            cv.circle(src, currentCenter, 5, new cv.Scalar(0, 0, 255, 255), -1); // Blue Dot
-
-            // Visualize Mask
-            cv.imshow('mask-output', hue);
-
-            // GAME LOGIC
-            if (isArmed) {
-                checkZones(currentCenter);
-            }
-
-        } else if (isSelectionStarted) {
-            // Visualize selection
-            let color = new cv.Scalar(255, 0, 0, 255);
-            let p1 = new cv.Point(selectionRect.x, selectionRect.y);
-            let p2 = new cv.Point(selectionRect.x + selectionRect.width, selectionRect.y + selectionRect.height);
-            cv.rectangle(src, p1, p2, color, 2);
-        }
-
-        cv.imshow('canvas-output', src);
-
-    } catch (err) {
-        console.error("CV Loop Error:", err);
-        isStreaming = false;
-        setTimeout(() => { isStreaming = true; requestAnimationFrame(processFrame); }, 2000);
-        return;
-    }
-
-    requestAnimationFrame(processFrame);
 }
 
 function startTracking() {
     if (selectionRect.width <= 0 || selectionRect.height <= 0) return;
+    
+    // 1. Define ROI Mask
+    // We only look for features INSIDE the box the user drew
+    mask.setTo(new cv.Scalar(0)); // Black out everything
+    
+    let roiRect = new cv.Rect(selectionRect.x, selectionRect.y, selectionRect.width, selectionRect.height);
+    let roi = mask.roi(roiRect);
+    roi.setTo(new cv.Scalar(255)); // White inside box
+    roi.delete(); // allow Matrix data to remain, just delete view
 
-    let roi = src.roi(selectionRect);
-    let hsvRoi = new cv.Mat();
-    cv.cvtColor(roi, hsvRoi, cv.COLOR_RGBA2RGB);
-    cv.cvtColor(hsvRoi, hsvRoi, cv.COLOR_RGB2HSV);
+    // 2. Detect "Good Features to Track" (Corners/High Contrast)
+    // maxCorners: 100, qualityLevel: 0.3, minDistance: 7, blockSize: 7
+    try {
+        cv.goodFeaturesToTrack(oldGray, p0, 100, 0.3, 7, mask, 7);
+        
+        if (p0.rows === 0) {
+            alert("No discernable features found in selection. Try selecting a more textured part of the object.");
+            return;
+        }
 
-    // Filter Setup (Match ProcessFrame)
-    let maskRoi = new cv.Mat();
-    let low = new cv.Mat(hsvRoi.rows, hsvRoi.cols, hsvRoi.type(), [0, 25, 20, 0]);
-    let high = new cv.Mat(hsvRoi.rows, hsvRoi.cols, hsvRoi.type(), [180, 255, 255, 0]);
-    cv.inRange(hsvRoi, low, high, maskRoi);
+        trackBox = { ...selectionRect };
+        isTracking = true;
+        
+        document.getElementById('status-message').innerText = `Locked ${ p0.rows } Feature Points.`;
+        document.getElementById('status-message').className = "status-ok";
+        document.getElementById('start-btn').disabled = false;
+        document.getElementById('start-btn').focus();
 
-    // Hist
-    let roiVec = new cv.MatVector();
-    roiVec.push_back(hsvRoi);
-    cv.calcHist(roiVec, [0, 1], maskRoi, hist, [16, 16], [0, 180, 0, 256]);
-    cv.normalize(hist, hist, 0, 255, cv.NORM_MINMAX);
+    } catch(e) {
+        console.error("Feature detection error:", e);
+    }
+}
 
-    // Track Window
-    trackWindow = new cv.Rect(selectionRect.x, selectionRect.y, selectionRect.width, selectionRect.height);
+function processFrame() {
+    if (!isStreaming) return;
+    
+    try {
+        let frame = new cv.Mat(video.height, video.width, cv.CV_8UC4);
+        cap.read(frame);
+        cv.flip(frame, frame, 1);
+        
+        // Convert to Gray
+        cv.cvtColor(frame, newGray, cv.COLOR_RGBA2GRAY);
 
-    roi.delete(); hsvRoi.delete(); maskRoi.delete(); low.delete(); high.delete(); roiVec.delete();
+        if (isTracking) {
+             // Calculate Optical Flow
+             // p0 = old points, p1 = new points calculated
+             if (p0.rows > 0) {
+                // winSize: (15,15), maxLevel: 2, criteria: (COUNT+EPS, 10, 0.03)
+                let winSize = new cv.Size(15, 15);
+                let maxLevel = 2;
+                let criteria = new cv.TermCriteria(cv.TermCriteria_EPS | cv.TermCriteria_COUNT, 10, 0.03);
+                
+                cv.calcOpticalFlowPyrLK(oldGray, newGray, p0, p1, st, err, winSize, maxLevel, criteria);
+                
+                // Select good points
+                let goodNew = [];
+                let goodOld = [];
+                let dx_sum = 0;
+                let dy_sum = 0;
+                let count = 0;
 
-    isTracking = true;
+                for (let i = 0; i < st.rows; i++) {
+                    if (st.data[i] === 1) { // 1 = Found
+                        let nx = p1.data32F[i * 2];
+                        let ny = p1.data32F[i * 2 + 1];
+                        let ox = p0.data32F[i * 2];
+                        let oy = p0.data32F[i * 2 + 1];
+                        
+                        goodNew.push(new cv.Point(nx, ny));
+                        goodOld.push(new cv.Point(ox, oy));
+                        
+                        dx_sum += (nx - ox);
+                        dy_sum += (ny - oy);
+                        count++;
+                        
+                        // Draw Tracking Points (Digital Velcro)
+                        cv.circle(frame, new cv.Point(nx, ny), 3, new cv.Scalar(0, 255, 255, 255), -1);
+                    }
+                }
+                
+                if (count < 5) {
+                    // Lost tracking
+                    isTracking = false;
+                    document.getElementById('status-message').innerText = "Lost Tracking. Select Again.";
+                    document.getElementById('status-message').className = "status-warn";
+                    isArmed = false;
+                } else {
+                    // Update Box Position based on Average Movement
+                    let dx = dx_sum / count;
+                    let dy = dy_sum / count;
+                    
+                    trackBox.x += dx;
+                    trackBox.y += dy;
+                    
+                    currentCenter.x = trackBox.x + trackBox.width / 2;
+                    currentCenter.y = trackBox.y + trackBox.height / 2;
+                    
+                    // Update p0 for next frame
+                    p0.delete(); 
+                    p0 = new cv.Mat(goodNew.length, 1, cv.CV_32FC2);
+                    for (let i = 0; i < goodNew.length; i++) {
+                        p0.data32F[i * 2] = goodNew[i].x;
+                        p0.data32F[i * 2 + 1] = goodNew[i].y;
+                    }
+                    
+                    // Draw Box
+                    let p1_box = new cv.Point(trackBox.x, trackBox.y);
+                    let p2_box = new cv.Point(trackBox.x + trackBox.width, trackBox.y + trackBox.height);
+                    cv.rectangle(frame, p1_box, p2_box, new cv.Scalar(0, 255, 0, 255), 2);
+                    cv.circle(frame, currentCenter, 5, new cv.Scalar(0, 0, 255, 255), -1);
+                    
+                    if (isArmed) checkZones(currentCenter);
+                }
+             }
+        }
+        else if (isSelectionStarted && (selectionState === 'SELECTING' || selectionState === 'CONFIRMING')) {
+             let color = new cv.Scalar(255, 0, 0, 255);
+             let p1_sel = new cv.Point(selectionRect.x, selectionRect.y);
+             let p2_sel = new cv.Point(selectionRect.x + selectionRect.width, selectionRect.y + selectionRect.height);
+             cv.rectangle(frame, p1_sel, p2_sel, color, 2);
+        }
+        
+        cv.imshow('canvas-output', frame);
+        
+        // Critical: Update oldGray
+        newGray.copyTo(oldGray);
+        frame.delete();
 
-    document.getElementById('status-message').innerText = "Target Locked.";
-    document.getElementById('status-message').className = "status-ok";
-    document.getElementById('start-btn').disabled = false;
-    document.getElementById('start-btn').focus();
+    } catch(e) {
+        console.error("Loop Error:", e);
+    }
+    
+    requestAnimationFrame(processFrame);
 }
 
 function setupInputHandlers() {
@@ -503,7 +539,7 @@ function checkZones(centerPoint) {
         y >= yesZone.y && y <= (yesZone.y + yesZone.h)) {
         yesFrames++;
         noFrames = 0;
-        cv.putText(src, `VERIFYING: ${yesFrames}`, { x: 50, y: 50 }, cv.FONT_HERSHEY_PLAIN, 2.0, new cv.Scalar(0, 255, 0, 255), 2);
+        cv.putText(src, `VERIFYING: ${ yesFrames } `, { x: 50, y: 50 }, cv.FONT_HERSHEY_PLAIN, 2.0, new cv.Scalar(0, 255, 0, 255), 2);
 
         if (yesFrames > 30) { // ~1 second @ 30fps
             triggerSuccess();
@@ -514,7 +550,7 @@ function checkZones(centerPoint) {
         y >= noZone.y && y <= (noZone.y + noZone.h)) {
         noFrames++;
         yesFrames = 0;
-        cv.putText(src, `FAILING: ${noFrames}`, { x: src.cols - 200, y: 50 }, cv.FONT_HERSHEY_PLAIN, 2.0, new cv.Scalar(255, 0, 0, 255), 2);
+        cv.putText(src, `FAILING: ${ noFrames } `, { x: src.cols - 200, y: 50 }, cv.FONT_HERSHEY_PLAIN, 2.0, new cv.Scalar(255, 0, 0, 255), 2);
 
         if (noFrames > 15) { // Faster fail
             triggerFail();

@@ -1,4 +1,3 @@
-```javascript
 
 // State Variables
 let video = null;
@@ -112,11 +111,11 @@ function initOpenCV() {
     // Init Mats
     try {
         cap = new cv.VideoCapture(video);
-        
+
         // We need 2 frames for Optical Flow
         oldGray = new cv.Mat(height, width, cv.CV_8UC1);
         newGray = new cv.Mat(height, width, cv.CV_8UC1);
-        
+
         // These hold the points
         p0 = new cv.Mat(); // Previous points
         p1 = new cv.Mat(); // New points
@@ -126,13 +125,13 @@ function initOpenCV() {
         // Mask for creating ROI for 'goodFeaturesToTrack'
         mask = new cv.Mat(height, width, cv.CV_8UC1);
 
-        console.log(`OpenCV Initialized: ${ width }x${ height } `);
-        
+        console.log(`OpenCV Initialized: ${width}x${height} `);
+
         if (!isStreaming) {
-             isStreaming = true;
-             requestAnimationFrame(processFrame);
+            isStreaming = true;
+            requestAnimationFrame(processFrame);
         }
-        
+
         // Read first frame to ensure oldGray is populated
         let frameMap = new cv.Mat(height, width, cv.CV_8UC4);
         cap.read(frameMap);
@@ -143,17 +142,17 @@ function initOpenCV() {
     } catch (e) {
         console.error("OpenCV Init Error:", e);
     }
-    
+
     setupInputHandlers();
 }
 
 function startTracking() {
     if (selectionRect.width <= 0 || selectionRect.height <= 0) return;
-    
+
     // 1. Define ROI Mask
     // We only look for features INSIDE the box the user drew
     mask.setTo(new cv.Scalar(0)); // Black out everything
-    
+
     let roiRect = new cv.Rect(selectionRect.x, selectionRect.y, selectionRect.width, selectionRect.height);
     let roi = mask.roi(roiRect);
     roi.setTo(new cv.Scalar(255)); // White inside box
@@ -163,7 +162,7 @@ function startTracking() {
     // maxCorners: 100, qualityLevel: 0.3, minDistance: 7, blockSize: 7
     try {
         cv.goodFeaturesToTrack(oldGray, p0, 100, 0.3, 7, mask, 7);
-        
+
         if (p0.rows === 0) {
             alert("No discernable features found in selection. Try selecting a more textured part of the object.");
             return;
@@ -171,39 +170,39 @@ function startTracking() {
 
         trackBox = { ...selectionRect };
         isTracking = true;
-        
-        document.getElementById('status-message').innerText = `Locked ${ p0.rows } Feature Points.`;
+
+        document.getElementById('status-message').innerText = `Locked ${p0.rows} Feature Points.`;
         document.getElementById('status-message').className = "status-ok";
         document.getElementById('start-btn').disabled = false;
         document.getElementById('start-btn').focus();
 
-    } catch(e) {
+    } catch (e) {
         console.error("Feature detection error:", e);
     }
 }
 
 function processFrame() {
     if (!isStreaming) return;
-    
+
     try {
         let frame = new cv.Mat(video.height, video.width, cv.CV_8UC4);
         cap.read(frame);
         cv.flip(frame, frame, 1);
-        
+
         // Convert to Gray
         cv.cvtColor(frame, newGray, cv.COLOR_RGBA2GRAY);
 
         if (isTracking) {
-             // Calculate Optical Flow
-             // p0 = old points, p1 = new points calculated
-             if (p0.rows > 0) {
+            // Calculate Optical Flow
+            // p0 = old points, p1 = new points calculated
+            if (p0.rows > 0) {
                 // winSize: (15,15), maxLevel: 2, criteria: (COUNT+EPS, 10, 0.03)
                 let winSize = new cv.Size(15, 15);
                 let maxLevel = 2;
                 let criteria = new cv.TermCriteria(cv.TermCriteria_EPS | cv.TermCriteria_COUNT, 10, 0.03);
-                
+
                 cv.calcOpticalFlowPyrLK(oldGray, newGray, p0, p1, st, err, winSize, maxLevel, criteria);
-                
+
                 // Select good points
                 let goodNew = [];
                 let goodOld = [];
@@ -217,19 +216,19 @@ function processFrame() {
                         let ny = p1.data32F[i * 2 + 1];
                         let ox = p0.data32F[i * 2];
                         let oy = p0.data32F[i * 2 + 1];
-                        
+
                         goodNew.push(new cv.Point(nx, ny));
                         goodOld.push(new cv.Point(ox, oy));
-                        
+
                         dx_sum += (nx - ox);
                         dy_sum += (ny - oy);
                         count++;
-                        
+
                         // Draw Tracking Points (Digital Velcro)
                         cv.circle(frame, new cv.Point(nx, ny), 3, new cv.Scalar(0, 255, 255, 255), -1);
                     }
                 }
-                
+
                 if (count < 5) {
                     // Lost tracking
                     isTracking = false;
@@ -240,48 +239,48 @@ function processFrame() {
                     // Update Box Position based on Average Movement
                     let dx = dx_sum / count;
                     let dy = dy_sum / count;
-                    
+
                     trackBox.x += dx;
                     trackBox.y += dy;
-                    
+
                     currentCenter.x = trackBox.x + trackBox.width / 2;
                     currentCenter.y = trackBox.y + trackBox.height / 2;
-                    
+
                     // Update p0 for next frame
-                    p0.delete(); 
+                    p0.delete();
                     p0 = new cv.Mat(goodNew.length, 1, cv.CV_32FC2);
                     for (let i = 0; i < goodNew.length; i++) {
                         p0.data32F[i * 2] = goodNew[i].x;
                         p0.data32F[i * 2 + 1] = goodNew[i].y;
                     }
-                    
+
                     // Draw Box
                     let p1_box = new cv.Point(trackBox.x, trackBox.y);
                     let p2_box = new cv.Point(trackBox.x + trackBox.width, trackBox.y + trackBox.height);
                     cv.rectangle(frame, p1_box, p2_box, new cv.Scalar(0, 255, 0, 255), 2);
                     cv.circle(frame, currentCenter, 5, new cv.Scalar(0, 0, 255, 255), -1);
-                    
+
                     if (isArmed) checkZones(currentCenter);
                 }
-             }
+            }
         }
         else if (isSelectionStarted && (selectionState === 'SELECTING' || selectionState === 'CONFIRMING')) {
-             let color = new cv.Scalar(255, 0, 0, 255);
-             let p1_sel = new cv.Point(selectionRect.x, selectionRect.y);
-             let p2_sel = new cv.Point(selectionRect.x + selectionRect.width, selectionRect.y + selectionRect.height);
-             cv.rectangle(frame, p1_sel, p2_sel, color, 2);
+            let color = new cv.Scalar(255, 0, 0, 255);
+            let p1_sel = new cv.Point(selectionRect.x, selectionRect.y);
+            let p2_sel = new cv.Point(selectionRect.x + selectionRect.width, selectionRect.y + selectionRect.height);
+            cv.rectangle(frame, p1_sel, p2_sel, color, 2);
         }
-        
+
         cv.imshow('canvas-output', frame);
-        
+
         // Critical: Update oldGray
         newGray.copyTo(oldGray);
         frame.delete();
 
-    } catch(e) {
+    } catch (e) {
         console.error("Loop Error:", e);
     }
-    
+
     requestAnimationFrame(processFrame);
 }
 
@@ -539,7 +538,7 @@ function checkZones(centerPoint) {
         y >= yesZone.y && y <= (yesZone.y + yesZone.h)) {
         yesFrames++;
         noFrames = 0;
-        cv.putText(src, `VERIFYING: ${ yesFrames } `, { x: 50, y: 50 }, cv.FONT_HERSHEY_PLAIN, 2.0, new cv.Scalar(0, 255, 0, 255), 2);
+        cv.putText(src, `VERIFYING: ${yesFrames} `, { x: 50, y: 50 }, cv.FONT_HERSHEY_PLAIN, 2.0, new cv.Scalar(0, 255, 0, 255), 2);
 
         if (yesFrames > 30) { // ~1 second @ 30fps
             triggerSuccess();
@@ -550,7 +549,7 @@ function checkZones(centerPoint) {
         y >= noZone.y && y <= (noZone.y + noZone.h)) {
         noFrames++;
         yesFrames = 0;
-        cv.putText(src, `FAILING: ${ noFrames } `, { x: src.cols - 200, y: 50 }, cv.FONT_HERSHEY_PLAIN, 2.0, new cv.Scalar(255, 0, 0, 255), 2);
+        cv.putText(src, `FAILING: ${noFrames} `, { x: src.cols - 200, y: 50 }, cv.FONT_HERSHEY_PLAIN, 2.0, new cv.Scalar(255, 0, 0, 255), 2);
 
         if (noFrames > 15) { // Faster fail
             triggerFail();
